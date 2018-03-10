@@ -35,8 +35,8 @@ class GaussianMixtureModel:
         self._fitted = False
         # If a cluster has near 0 weight or a near singular variance
         # we will prune this cluster and reduce the number of clusters
-        # by 1.  This should never occur if num_clusters=1 except in
-        # extremely degenerate cases
+        # by 1.  This should never reduce the number of clusters to 0
+        # except in extremely degenerate cases
         self.prune_clusters = prune_clusters
         self.logging = logging
         if self.logging:
@@ -74,7 +74,6 @@ class GaussianMixtureModel:
         return r
 
     def _Mstep(self, X, r):
-        # @numba.jit(nopython=True, cache=True)
         N = X.shape[0]
         pi = (1. / N) * np.sum(r, axis=1)
         mu = np.einsum('ki,ip->kp', r, X) / (N * pi[:, None])
