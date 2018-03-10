@@ -93,7 +93,9 @@ class TestMixtureGaussians(unittest.TestCase):
 
         gmm = GaussianMixtureModel(2)
         gmm.fit(X, num_restarts=10)
-        gmm.plot_scatter_density(X)
+        fig = gmm.plot_scatter_density(X)
+        fig.savefig('example1.png')
+        plt.show()
         return
 
     def test005_cluster_complex(self):
@@ -101,7 +103,7 @@ class TestMixtureGaussians(unittest.TestCase):
         K = 5
         m = 2
 
-        mu = 5 * np.random.normal(size=(K, 2))
+        mu = 3 * np.random.normal(size=(K, 2))
         Sigma = np.stack([np.eye(2)] * K)
         for _ in range(m):
             L = np.random.multivariate_normal(np.zeros(2), np.eye(2), size=K)
@@ -114,6 +116,9 @@ class TestMixtureGaussians(unittest.TestCase):
             X = np.vstack((X, Xk))
 
         gmm = GaussianMixtureModel(K + 3)
-        gmm.fit(X, num_restarts=20)
-        gmm.plot_scatter_density(X)
+        gmm.fit(X, num_restarts=25)
+        fig = gmm.plot_scatter_density(X)
+        fig.show()
+        fig.savefig('example2.png')
+        plt.show()
         return

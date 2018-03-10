@@ -1,9 +1,10 @@
 """
 Implements EM algorithm for fitting a mixture of gaussian densities.
 """
+import logging
 
 import numpy as np
-import logging
+import matplotlib.colors as colors
 
 from matplotlib import pyplot as plt
 
@@ -203,11 +204,14 @@ class GaussianMixtureModel:
         xx, yy = np.meshgrid(x, y)
         xxyy = np.array([xx.ravel(), yy.ravel()]).T
         p = self.density(xxyy).reshape(xx.shape)
-        plt.scatter(X[:, 0], X[:, 1], color='r', marker='x')
-        plt.contourf(x, y, p, 10, alpha=0.8)
-        plt.colorbar()
-        plt.xlabel('$x$')
-        plt.ylabel('$y$')
-        plt.title('GMM Density Estimates')
-        plt.show()
-        return
+        fig, ax = plt.subplots(1, 1)
+        ax.scatter(X[:, 0], X[:, 1], color='r', marker='x')
+        min_pwr = int(np.min(np.log10(p)))
+        levels = np.append(10**min_pwr, np.logspace(-2, 0, 15))
+        cntr = ax.contourf(x, y, p, levels, alpha=0.8,
+                           norm=colors.LogNorm(vmin=1e-3, vmax=1.))
+        fig.colorbar(cntr, format='%.0e')
+        ax.set_xlabel('$x$')
+        ax.set_ylabel('$y$')
+        ax.set_title('GMM Density Estimate')
+        return fig
