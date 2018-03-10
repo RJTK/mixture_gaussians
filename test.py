@@ -30,7 +30,7 @@ class TestMixtureGaussians(unittest.TestCase):
         X = 2 * np.random.normal(size=(N, p))
         K = 1  # Number of clusters
 
-        gmm = GaussianMixtureModel(num_clusters=K)
+        gmm = GaussianMixtureModel(num_clusters=K, do_logging=True)
         gmm.fit(X)
         return
 
@@ -38,8 +38,26 @@ class TestMixtureGaussians(unittest.TestCase):
         N, p = 150, 5
         X = np.random.normal(size=(N, p))
         K = 2
-        gmm = GaussianMixtureModel(K)
+        gmm = GaussianMixtureModel(K, do_logging=True)
         gmm.fit(X)
+        return
+
+    def test006_pruning(self):
+        N = 200
+        mu = np.array([[-4, 0],
+                       [4, 4]])
+        Sigma = np.array([[[1., -0.1],
+                           [-0.1, 1.3]],
+
+                          [[0.6, 0.2],
+                           [0.2, 1.8]]])
+
+        X1 = np.random.multivariate_normal(mu[0], Sigma[0], size=N // 2)
+        X2 = np.random.multivariate_normal(mu[1], Sigma[1], size=N // 2)
+        X = np.vstack((X1, X2))
+
+        gmm = GaussianMixtureModel(200, do_logging=True, prune_clusters=True)
+        gmm.fit(X, callback=plot_progress_2D, num_restarts=5)
         return
 
     def test003_cluster(self):
@@ -56,7 +74,7 @@ class TestMixtureGaussians(unittest.TestCase):
         X2 = np.random.multivariate_normal(mu[1], Sigma[1], size=N // 2)
         X = np.vstack((X1, X2))
 
-        gmm = GaussianMixtureModel(2)
+        gmm = GaussianMixtureModel(2, do_logging=True)
         gmm.fit(X, callback=plot_progress_2D, num_restarts=5)
 
         x_min, x_max = np.min(X[:, 0]), np.max(X[:, 0])
