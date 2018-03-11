@@ -7,6 +7,10 @@ import numpy as np
 import matplotlib.colors as colors
 
 from matplotlib import pyplot as plt
+import seaborn
+
+plt.rc('text', usetex=True)
+plt.rc('font', family='serif')
 
 # Data dimensions:
 # K = num_clusters
@@ -259,7 +263,7 @@ class GaussianMixtureModel:
         fig.colorbar(cntr, format='%.0e')
 
         plt.scatter(self.mu[:, 0], self.mu[:, 1], color='m', marker='o')
-        ax.set_xlabel('$x$')
-        ax.set_ylabel('$y$')
+        ax.set_xlabel('$x_1$', fontsize=16)
+        ax.set_ylabel('$x_2$', fontsize=16)
         ax.set_title('GMM Density Estimate')
         return fig
