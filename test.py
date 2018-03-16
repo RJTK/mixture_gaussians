@@ -1,6 +1,7 @@
 import unittest
 import numpy as np
 from matplotlib import pyplot as plt
+import seaborn
 from matplotlib.patches import Ellipse
 
 from mixture_gaussians import GaussianMixtureModel
@@ -121,6 +122,7 @@ class TestMixtureGaussians(unittest.TestCase):
         K = 5
         m = 2
 
+        np.random.seed(2718)
         mu = 3 * np.random.normal(size=(K, 2))
         Sigma = np.stack([np.eye(2)] * K)
         for _ in range(m):
@@ -139,4 +141,26 @@ class TestMixtureGaussians(unittest.TestCase):
         fig.show()
         fig.savefig('example2.png')
         plt.show()
+        return
+
+    def test006_high_dim(self):
+        N = 600
+        K = 5
+        m = 2
+        p = 10
+
+        mu = 3 * np.random.normal(size=(K, p))
+        Sigma = np.stack([np.eye(p)] * K)
+        for _ in range(m):
+            L = np.random.multivariate_normal(np.zeros(p), np.eye(p), size=K)
+            Sigma += np.einsum('kp,kq->kpq', L, L)
+        Sigma *= 0.5
+
+        X = np.random.multivariate_normal(mu[0], Sigma[0], size=N // 2)
+        for k in range(1, K):
+            Xk = np.random.multivariate_normal(mu[k], Sigma[k], size=N // 2)
+            X = np.vstack((X, Xk))
+
+        gmm = GaussianMixtureModel(K + 3)
+        gmm.fit(X, num_restarts=25)
         return

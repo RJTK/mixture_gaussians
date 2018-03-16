@@ -34,7 +34,23 @@ class MstepException(Exception):
 
 
 class GaussianMixtureModel:
-    def __init__(self, num_clusters, do_logging=False, prune_clusters=True):
+    def __init__(self, num_clusters, do_logging=False, prune_clusters=True,
+                 MAP_regularize=False):
+        """
+        A Gaussian mixture model.
+
+        params:
+          num_clusters (int): Number of clusters to fit to the data
+          do_logging (bool): Whether or not to log debug events
+          prune_clusters (bool): If True, we will prune clusters with a
+            nearly singular covariance or with small mixture weights.  This
+            is slower, but improves numerical stability.  It also means that
+            the resulting number of clusters may be less than num_clusters.
+          MAP_regularize (bool): If True, we will add a standard regularizer,
+            or equivalently perform MAP estimation.  This greatly improves
+            the numerical robustness and is more or less essential in high
+            dimensions.
+        """
         self.num_clusters = num_clusters
         self._fitted = False
         # If a cluster has near 0 weight or a near singular variance
@@ -42,8 +58,9 @@ class GaussianMixtureModel:
         # by 1.  This should never reduce the number of clusters to 0
         # except in extremely degenerate cases
         self.prune_clusters = prune_clusters
-        self.logging = logging
-        if self.logging:
+        self.MAP_regularize = MAP_regularize
+        self.do_logging = do_logging
+        if self.do_logging:
             self.logger = logging.getLogger(__name__)
             self.logger.setLevel(logging.DEBUG)
             fh = logging.FileHandler('mixture_gaussians.log')
@@ -61,7 +78,7 @@ class GaussianMixtureModel:
                                        U, np.linalg.inv(Sigma), U)
                              + np.linalg.slogdet(Sigma)[1][:, None])
         except np.linalg.LinAlgError as e:
-            if self.logging:
+            if self.do_logging:
                 self.logger.error('LinAlgError in Estep: %s' % e)
             raise EstepException('LinAlgError')
 
@@ -70,7 +87,7 @@ class GaussianMixtureModel:
                                            np.exp(log_Px - M)))
         r = (pi[:, None] * np.exp(log_Px)) / np.exp(logsum_piPx)
         if np.any(np.isnan(r)):
-            if self.logging:
+            if self.do_logging:
                 self.logger.error('r contains nan r = %s, pi = %s\n'
                                   'Setting nans to 0 and continuing' % (r, pi))
             r[np.isnan(r)] = 0
@@ -86,10 +103,24 @@ class GaussianMixtureModel:
                  np.einsum('kp,kq->kpq', mu, mu))
         return pi, mu, Sigma
 
+    def _Mstep_MAP(self, X, r):
+        S0, K = self.S0, self.num_clusters
+        N = X.shape[0]  # Number of samples
+        p = X.shape[1]  # Dimension
+
+        pi = (1. / N) * np.sum(r, axis=1)
+        mu = np.einsum('ki,ip->kp', r, X) / (N * pi[:, None])
+        U = np.moveaxis(X[:, None, :] - mu, 0, 1)
+        S = np.einsum('ki,kip,kiq->kpq', r, U, U)
+        S0 = S0 / (K ** (1. / p))
+        S[:, range(p), range(p)] += S0
+        Sigma = S / (2 * p + 4 + N * pi)[:, None, None]
+        return pi, mu, Sigma
+
     def _Qfunc(self, X, r, pi, mu, Sigma):
         log_pi = np.log(pi)
         if np.any(np.isnan(log_pi)):
-            if self.logging:
+            if self.do_logging:
                 self.logger.error('nan in log_pi.  pi = %s' % pi)
             raise QstepException('nan in log_pi')
 
@@ -101,7 +132,7 @@ class GaussianMixtureModel:
                           + np.einsum('ki,kip,kpq,kiq->',
                                       r, U, np.linalg.inv(Sigma), U))
         except np.linalg.LinAlgError as e:
-            if self.logging:
+            if self.do_logging:
                 self.logger.error('LinAlgError in Q: %s' % e)
             raise QstepException('LinAlgError')
 
@@ -117,7 +148,7 @@ class GaussianMixtureModel:
                 mu = np.delete(mu, k, axis=0)
                 Sigma = np.delete(Sigma, k, axis=0)
                 r = np.delete(r, k, axis=0)
-                if self.logging:
+                if self.do_logging:
                     self.logger.warning('Pruned a cluster!')
             else:
                 k += 1
@@ -127,9 +158,11 @@ class GaussianMixtureModel:
             eps=1e-6, debug=False, callback=None):
         N, p = X.shape
         K = self.num_clusters
+        if self.MAP_regularize:
+            self.S0 = np.var(X, axis=0)
 
         for _ in range(num_restarts):
-            if self.logging:
+            if self.do_logging:
                 self.logger.info('----- EM restart ------')
 
             # Random initialization
@@ -151,16 +184,19 @@ class GaussianMixtureModel:
                 try:
                     r = self._Estep(X, pi, mu, Sigma)
                 except EstepException as e:
-                    if self.logging:
+                    if self.do_logging:
                         self.logger.error('Caught EstepException %s.  '
                                           'Continuing on next random restart'
                                           % e)
                     break
 
                 try:
-                    pi, mu, Sigma = self._Mstep(X, r)
+                    if not self.MAP_regularize:
+                        pi, mu, Sigma = self._Mstep(X, r)
+                    else:
+                        pi, mu, Sigma = self._Mstep_MAP(X, r)
                 except MstepException as e:
-                    if self.logging:
+                    if self.do_logging:
                         logging.error('Caught MstepException %s.  '
                                       'Continuing on next random restart' % e)
                     break
@@ -171,7 +207,7 @@ class GaussianMixtureModel:
                 try:
                     Q = self._Qfunc(X, r, pi, mu, Sigma)
                 except QstepException as e:
-                    if self.logging:
+                    if self.do_logging:
                         self.logger.error('Caught QstepException %s.  '
                                           'Continuing on next random restart'
                                           % e)
@@ -179,7 +215,7 @@ class GaussianMixtureModel:
 
                 delta_Q = Q - Q_prev
                 Q_prev = Q
-                if self.logging:
+                if self.do_logging:
                     self.logger.debug("Step %d: Q = %0.5f, delta_Q = %0.5f"
                                       % (step_count, Q, delta_Q))
                     if delta_Q < -np.abs(eps):
@@ -192,7 +228,7 @@ class GaussianMixtureModel:
             if callback is not None:
                 callback(X, pi_best, mu_best, Sigma_best, Q_best)
 
-            if self.logging:
+            if self.do_logging:
                 self.logger.debug('Done.  pi_best = %s, mu_best = %s, '
                                   'Sigma_best = %s'
                                   % (pi_best, mu_best, Sigma_best))
@@ -205,7 +241,7 @@ class GaussianMixtureModel:
             K = self.mu.shape[0]
             if K < self.num_clusters:
                 self.num_clusters = K
-                if self.logging:
+                if self.do_logging:
                     self.logger.warning('Max Q Cluster count is less than '
                                         'the initialization.  K = %d' % K)
         self._fitted = True
@@ -231,7 +267,7 @@ class GaussianMixtureModel:
                                            np.exp(log_Px - M)))
         p = np.exp(logsum_piPx)
         if np.any(np.isnan(p)):
-            if self.logging:
+            if self.do_logging:
                 self.logger.error('density p contains nan p = %s, log_p = %s\n'
                                   'Setting nans to 0 and continuing'
                                   % (p, log_Px))
@@ -239,13 +275,16 @@ class GaussianMixtureModel:
         return p
 
     def plot_scatter_density(self, X, fit=True):
-        """Plots the data X and the density estimate of the GMM"""
+        """Plots the first 2 dimensions of data X and the density estimate
+        of the GMM"""
         if not self._fitted:
             if fit:
                 self.fit(X)
             else:
                 raise AssertionError('Model not fit and specified fit=False')
 
+        if X.shape[1] > 2:
+            raise ValueError("We are only able to plot in 2 dimensions")
         x_min, x_max = np.min(X[:, 0]), np.max(X[:, 0])
         y_min, y_max = np.min(X[:, 1]), np.max(X[:, 1])
         x = np.linspace(1.1 * x_min, 1.1 * x_max, 350)
