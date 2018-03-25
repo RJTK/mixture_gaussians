@@ -118,6 +118,7 @@ class GaussianMixtureModel:
         return pi, mu, Sigma
 
     def _Qfunc(self, X, r, pi, mu, Sigma):
+        p = X.shape[1]
         log_pi = np.log(pi)
         if np.any(np.isnan(log_pi)):
             if self.do_logging:
@@ -128,13 +129,16 @@ class GaussianMixtureModel:
         U = np.moveaxis(X[:, None, :] - mu, 0, 1)
 
         try:
-            nll = -0.5 * (np.einsum('ki,k->', r, np.linalg.slogdet(Sigma)[1])
-                          + np.einsum('ki,kip,kpq,kiq->',
-                                      r, U, np.linalg.inv(Sigma), U))
+            L = np.linalg.cholesky(Sigma)
         except np.linalg.LinAlgError as e:
             if self.do_logging:
                 self.logger.error('LinAlgError in Q: %s' % e)
             raise QstepException('LinAlgError')
+
+        nll = -np.dot(np.sum(r, axis=1),
+                      np.sum(np.log(L[:, range(p), range(p)]), axis=1))
+        Z = np.einsum('kpq,kiq->kip', np.linalg.inv(L), U)
+        nll -= 0.5 * np.einsum('ki,ki', r, np.linalg.norm(Z, axis=2)**2)
 
         Q = cluster_quality + nll
         return Q
@@ -161,6 +165,7 @@ class GaussianMixtureModel:
         if self.MAP_regularize:
             self.S0 = np.var(X, axis=0)
 
+        Q_best = -np.inf
         for _ in range(num_restarts):
             if self.do_logging:
                 self.logger.info('----- EM restart ------')
@@ -171,10 +176,7 @@ class GaussianMixtureModel:
             pi = np.abs(np.random.normal(size=K))
             pi = pi / np.sum(pi)
 
-            pi_best, mu_best, Sigma_best = pi, mu, Sigma
-
             # Intialization for loop conditions
-            Q_best = -np.inf
             Q_prev = -np.inf
             delta_Q = np.inf
             step_count = 0
@@ -237,6 +239,7 @@ class GaussianMixtureModel:
             callback(X, pi_best, mu_best, Sigma_best, Q_best)
 
         self.pi, self.mu, self.Sigma = pi_best, mu_best, Sigma_best
+        self.Q_best = Q_best
         if self.prune_clusters:
             K = self.mu.shape[0]
             if K < self.num_clusters:
@@ -304,5 +307,5 @@ class GaussianMixtureModel:
         plt.scatter(self.mu[:, 0], self.mu[:, 1], color='m', marker='o')
         ax.set_xlabel('$x_1$', fontsize=16)
         ax.set_ylabel('$x_2$', fontsize=16)
-        ax.set_title('GMM Density Estimate')
+        ax.set_title('GMM Density Estimate, $Q = %0.4f$' % self.Q_best)
         return fig
