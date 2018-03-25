@@ -299,7 +299,7 @@ class GaussianMixtureModel:
         fig, ax = plt.subplots(1, 1)
         ax.scatter(X[:, 0], X[:, 1], color='r', marker='x')
         min_pwr = int(np.min(np.log10(p)))
-        levels = np.append(10**min_pwr, np.logspace(-2, 0, 15))
+        levels = np.append(10**min_pwr, np.logspace(-3, 0, 15))
         cntr = ax.contourf(x, y, p, levels, alpha=0.75,
                            norm=colors.LogNorm(vmin=1e-3, vmax=1.))
         fig.colorbar(cntr, format='%.0e')
