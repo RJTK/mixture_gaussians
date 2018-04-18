@@ -181,7 +181,7 @@ class GaussianMixtureModel:
             delta_Q = np.inf
             step_count = 0
 
-            while delta_Q > eps and step_count < max_steps:
+            while abs(delta_Q) > eps and step_count < max_steps:
                 step_count += 1
                 try:
                     r = self._Estep(X, pi, mu, Sigma)
@@ -220,8 +220,6 @@ class GaussianMixtureModel:
                 if self.do_logging:
                     self.logger.debug("Step %d: Q = %0.5f, delta_Q = %0.5f"
                                       % (step_count, Q, delta_Q))
-                    if delta_Q < -np.abs(eps):
-                        self.logger.error("Q did not decrease!")
 
             if Q > Q_best:
                 Q_best = Q
@@ -251,7 +249,7 @@ class GaussianMixtureModel:
         return
 
     def density(self, xxyy):
-        """Evaluate the fitted density at the points X, an (M x p) array"""
+        """Evaluate the fitted density at the points xxyy, an (M x p) array"""
         if not self._fitted:
             raise AssertionError('Model not fit')
         pi, mu, Sigma = self.pi, self.mu, self.Sigma
