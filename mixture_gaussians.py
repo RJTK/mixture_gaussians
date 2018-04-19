@@ -4,6 +4,7 @@ Implements EM algorithm for fitting a mixture of gaussian densities.
 import logging
 
 import numpy as np
+import scipy as sp
 import matplotlib.colors as colors
 
 from matplotlib import pyplot as plt
@@ -71,21 +72,47 @@ class GaussianMixtureModel:
                               "Mixture Model --------------")
         return
 
-    def _Estep(self, X, pi, mu, Sigma):
+    def _nll(self, X, pi, mu, Sigma):
+        """Evaluate the negative (observed) log-likelihood (energy function) of
+        all the data given in X.  This is the function that we are minimizing
+        via EM."""
+        nll = -np.sum(self._log_density(X, pi, mu, Sigma))
+        return nll
+
+    def _log_Px(self, X, mu, Sigma):
+        """Evaluates the log density of each mixture component at each
+        point in X.  So, if X is (N x p) and there are K components, this
+        will return a (K x N) array."""
         U = np.moveaxis(X[:, None, :] - mu, 0, 1)
+        log_Px = -0.5 * (np.einsum('kip,kpq,kiq->ki',
+                                   U, np.linalg.inv(Sigma), U)
+                         + np.linalg.slogdet(2 * np.pi * Sigma)[1][:, None])
+        return log_Px
+
+    def _log_density(self, X, pi, mu, Sigma):
+        """Evaluates the log density of the mixture model at each point
+        in X"""
+        log_Px = self._log_Px(X, mu, Sigma)
+        M = np.max(log_Px, axis=0)
+        log_p = M + np.log(np.einsum('k,ki->i', pi,
+                                     np.exp(log_Px - M)))
+        return log_p
+
+    def _Estep(self, X, pi, mu, Sigma):
         try:
-            log_Px = -0.5 * (np.einsum('kip,kpq,kiq->ki',
-                                       U, np.linalg.inv(Sigma), U)
-                             + np.linalg.slogdet(Sigma)[1][:, None])
+            log_Px = self._log_Px(X, mu, Sigma)
         except np.linalg.LinAlgError as e:
             if self.do_logging:
                 self.logger.error('LinAlgError in Estep: %s' % e)
             raise EstepException('LinAlgError')
 
+        # This protects against overflow in the exponential
+        # I don't really think this is necessary though since the
+        # log densities are all normalized.
         M = np.max(log_Px, axis=0)
         logsum_piPx = M + np.log(np.einsum('k,ki->i', pi,
                                            np.exp(log_Px - M)))
-        r = (pi[:, None] * np.exp(log_Px)) / np.exp(logsum_piPx)
+        r = (pi[:, None] * np.exp(log_Px - M)) / np.exp(logsum_piPx - M)
         if np.any(np.isnan(r)):
             if self.do_logging:
                 self.logger.error('r contains nan r = %s, pi = %s\n'
@@ -165,7 +192,7 @@ class GaussianMixtureModel:
         if self.MAP_regularize:
             self.S0 = np.var(X, axis=0)
 
-        Q_best = -np.inf
+        nll_best = np.inf
         for _ in range(num_restarts):
             if self.do_logging:
                 self.logger.info('----- EM restart ------')
@@ -221,12 +248,13 @@ class GaussianMixtureModel:
                     self.logger.debug("Step %d: Q = %0.5f, delta_Q = %0.5f"
                                       % (step_count, Q, delta_Q))
 
-            if Q > Q_best:
-                Q_best = Q
+            nll = self._nll(X, pi, mu, Sigma)
+            if nll < nll_best:
+                nll_best = nll
                 pi_best, mu_best, Sigma_best = pi, mu, Sigma
 
             if callback is not None:
-                callback(X, pi_best, mu_best, Sigma_best, Q_best)
+                callback(X, pi_best, mu_best, Sigma_best, nll_best)
 
             if self.do_logging:
                 self.logger.debug('Done.  pi_best = %s, mu_best = %s, '
@@ -234,10 +262,10 @@ class GaussianMixtureModel:
                                   % (pi_best, mu_best, Sigma_best))
 
         if callback is not None:
-            callback(X, pi_best, mu_best, Sigma_best, Q_best)
+            callback(X, pi_best, mu_best, Sigma_best, nll_best)
 
         self.pi, self.mu, self.Sigma = pi_best, mu_best, Sigma_best
-        self.Q_best = Q_best
+        self.nll_best = nll_best
         if self.prune_clusters:
             K = self.mu.shape[0]
             if K < self.num_clusters:
@@ -248,30 +276,23 @@ class GaussianMixtureModel:
         self._fitted = True
         return
 
-    def density(self, xxyy):
-        """Evaluate the fitted density at the points xxyy, an (M x p) array"""
+    def density(self, X):
+        """Evaluate the fitted density at the points X, an (M x p) array"""
         if not self._fitted:
             raise AssertionError('Model not fit')
         pi, mu, Sigma = self.pi, self.mu, self.Sigma
-        U = np.moveaxis(xxyy[:, None, :] - mu, 0, 1)
         try:
-            log_Px = -0.5 * (np.einsum('kip,kpq,kiq->ki',
-                                       U, np.linalg.inv(Sigma), U)
-                             + np.linalg.slogdet(Sigma)[1][:, None])
-            # This will fail if Sigma is a singular matrix
+            log_p = self._log_density(X, pi, mu, Sigma)
         except np.linalg.LinAlgError as e:
             self.logger.error('LinAlgError in density(): %s' % e)
             raise e
 
-        M = np.max(log_Px, axis=0)
-        logsum_piPx = M + np.log(np.einsum('k,ki->i', pi,
-                                           np.exp(log_Px - M)))
-        p = np.exp(logsum_piPx)
-        if np.any(np.isnan(p)):
+        p = np.exp(log_p)
+        if np.any(np.isnan(p)):  # This shouldn't happen unless a serious bug
             if self.do_logging:
                 self.logger.error('density p contains nan p = %s, log_p = %s\n'
                                   'Setting nans to 0 and continuing'
-                                  % (p, log_Px))
+                                  % (p, log_p))
             p[np.isnan(p)] = 0
         return p
 
@@ -297,13 +318,14 @@ class GaussianMixtureModel:
         fig, ax = plt.subplots(1, 1)
         ax.scatter(X[:, 0], X[:, 1], color='r', marker='x')
         min_pwr = int(np.min(np.log10(p)))
-        levels = np.append(10**min_pwr, np.logspace(-3, 0, 15))
+        levels = np.append(10**min_pwr, np.logspace(-4, 0, 15))
         cntr = ax.contourf(x, y, p, levels, alpha=0.75,
-                           norm=colors.LogNorm(vmin=1e-3, vmax=1.))
+                           norm=colors.LogNorm(vmin=1e-4, vmax=1.))
         fig.colorbar(cntr, format='%.0e')
 
         plt.scatter(self.mu[:, 0], self.mu[:, 1], color='m', marker='o')
-        ax.set_xlabel('$x_1$', fontsize=16)
-        ax.set_ylabel('$x_2$', fontsize=16)
-        ax.set_title('GMM Density Estimate, $Q = %0.4f$' % self.Q_best)
+        ax.set_xlabel(r'$x_1$', fontsize=16)
+        ax.set_ylabel(r'$x_2$', fontsize=16)
+        ax.set_title(r'GMM Density Estimate, $\varphi = %0.4f$'
+                     % self.nll_best)
         return fig

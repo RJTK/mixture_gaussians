@@ -43,39 +43,26 @@ class TestMixtureGaussians(unittest.TestCase):
         gmm.fit(X)
         return
 
-    def test006_pruning(self):
-        N = 200
-        mu = np.array([[-4, 0],
-                       [4, 4]])
-        Sigma = np.array([[[1., -0.1],
-                           [-0.1, 1.3]],
-
-                          [[0.6, 0.2],
-                           [0.2, 1.8]]])
-
-        X1 = np.random.multivariate_normal(mu[0], Sigma[0], size=N // 2)
-        X2 = np.random.multivariate_normal(mu[1], Sigma[1], size=N // 2)
-        X = np.vstack((X1, X2))
-
-        gmm = GaussianMixtureModel(200, do_logging=True, prune_clusters=True)
-        gmm.fit(X, callback=plot_progress_2D, num_restarts=5)
-        return
-
     def test003_cluster(self):
-        N = 200
-        mu = np.array([[-4, 0],
-                       [4, 4]])
+        N = 250
+        mu = np.array([[-2, 0],
+                       [2, 2],
+                       [1.1, -0.95]])
         Sigma = np.array([[[1., -0.1],
                            [-0.1, 1.3]],
 
                           [[0.6, 0.2],
-                           [0.2, 1.8]]])
+                           [0.2, 1.8]],
 
-        X1 = np.random.multivariate_normal(mu[0], Sigma[0], size=N // 2)
-        X2 = np.random.multivariate_normal(mu[1], Sigma[1], size=N // 2)
-        X = np.vstack((X1, X2))
+                          [[2.2, -0.3],
+                           [-0.3, 0.7]]])
 
-        gmm = GaussianMixtureModel(2, do_logging=True)
+        X1 = np.random.multivariate_normal(mu[0], Sigma[0], size=N // 3)
+        X2 = np.random.multivariate_normal(mu[1], Sigma[1], size=N // 3)
+        X3 = np.random.multivariate_normal(mu[2], Sigma[2], size=N // 3)
+        X = np.vstack((X1, X2, X3))
+
+        gmm = GaussianMixtureModel(3, do_logging=True)
         gmm.fit(X, callback=plot_progress_2D, num_restarts=5)
 
         x_min, x_max = np.min(X[:, 0]), np.max(X[:, 0])
@@ -88,6 +75,7 @@ class TestMixtureGaussians(unittest.TestCase):
         p = gmm.density(xxyy).reshape(xx.shape)
         plt.scatter(X1[:, 0], X1[:, 1], color='r', marker='x')
         plt.scatter(X2[:, 0], X2[:, 1], color='m', marker='o')
+        plt.scatter(X3[:, 0], X3[:, 1], color='g', marker='v')
         plt.contourf(x, y, p, alpha=0.5)
         plt.colorbar()
         plt.xlabel('$x$')
@@ -163,4 +151,22 @@ class TestMixtureGaussians(unittest.TestCase):
 
         gmm = GaussianMixtureModel(K + 3)
         gmm.fit(X, num_restarts=25)
+        return
+
+    def test007_pruning(self):
+        N = 200
+        mu = np.array([[-4, 0],
+                       [4, 4]])
+        Sigma = np.array([[[1., -0.1],
+                           [-0.1, 1.3]],
+
+                          [[0.6, 0.2],
+                           [0.2, 1.8]]])
+
+        X1 = np.random.multivariate_normal(mu[0], Sigma[0], size=N // 2)
+        X2 = np.random.multivariate_normal(mu[1], Sigma[1], size=N // 2)
+        X = np.vstack((X1, X2))
+
+        gmm = GaussianMixtureModel(200, do_logging=True, prune_clusters=True)
+        gmm.fit(X, callback=plot_progress_2D, num_restarts=5)
         return
